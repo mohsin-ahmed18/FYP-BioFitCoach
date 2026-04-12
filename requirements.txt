@@ -31,5 +31,7 @@ psycopg2-binary==2.9.9
 pydantic==2.9.2
 requests==2.32.3
 openai==1.51.2
+# openai<1.55 passes `proxies` to httpx; httpx 0.28 removed that kwarg
+httpx>=0.27.0,<0.28
 python-dotenv==1.0.1
 pandas==2.2.3
