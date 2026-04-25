@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 from database import engine
 import json
@@ -10,7 +10,13 @@ router = APIRouter()
 
 
 @router.post("/generate-workout")
-def generate_workout(session_id: int):
+def generate_workout(
+    session_id: int,
+    exercise: str | None = Query(
+        None,
+        description="Exercise key from the app (e.g. squat, bench-press) for LLM context",
+    ),
+):
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -76,7 +82,11 @@ def generate_workout(session_id: int):
     # -----------------------------
     # 5️⃣ LLM generation
     # -----------------------------
-    ai_report = generate_ai_workout(readiness_vector, exercises)
+    ai_report = generate_ai_workout(readiness_vector, exercises, session_exercise=exercise)
+
+    # Persist short rule-based exercise names separately so the web UI can show compact
+    # chips; the LLM "recommendations" entries are often long prose sentences.
+    plan_payload = {**ai_report, "rule_based_exercise_tags": exercises}
 
     # -----------------------------
     # 6️⃣ SAVE TO DATABASE ✅
@@ -90,7 +100,7 @@ def generate_workout(session_id: int):
             """),
             {
                 "sid": session_id,
-                "output": json.dumps(ai_report)
+                "output": json.dumps(plan_payload)
             }
         )
 

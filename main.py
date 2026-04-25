@@ -15,6 +15,7 @@ from routers import (
     analysis_router,
     results_router,
     workout_router,
+    live_pose_router,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -56,3 +57,4 @@ app.include_router(frames_router.router)
 app.include_router(analysis_router.router)
 app.include_router(results_router.router)
 app.include_router(workout_router.router)
+app.include_router(live_pose_router.router)
