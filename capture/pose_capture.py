@@ -199,15 +199,16 @@ def start_capture():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                 cv2.putText(frame, f"Exercise: {rep_output['exercise']}", (10, 260),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
-
                 cv2.putText(frame, f"Reps: {rep_output['reps']}", (10, 290),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-
                 cv2.putText(frame, f"Stage: {rep_output['stage']}", (10, 320),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
-          
-            # FRAME COUNTER
+                cv2.putText(frame, f"Score: {rep_output['avg_score']}", (10, 350),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+                cv2.putText(frame, f"Feedback: {rep_output['feedback']}", (10, 380),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2)
             
+            # FRAME COUNTER 
             cv2.putText(frame, f"Frames: {len(frames_buffer)}",
                         (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX,

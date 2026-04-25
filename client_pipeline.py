@@ -1,123 +1,130 @@
 import requests
-from datetime import datetime
 from capture.pose_capture import start_capture
 
 BASE_URL = "http://127.0.0.1:8000"
 
-# CREATE SESSION
+# API CALLS
 
 def create_session(name, email):
-    now = datetime.now()
+    payload = {
+        "name": name,
+        "email": email
+    }
 
-    response = requests.post(
-        f"{BASE_URL}/session",
-        json={
-            "name": name,
-            "email": email,
-            "session_date": now.strftime("%Y-%m-%d"),
-            "capture_time": now.strftime("%H:%M:%S")
-        }
-    )
+    res = requests.post(f"{BASE_URL}/session", json=payload)
 
-    return response.json()
+    try:
+        data = res.json()
+    except:
+        print("Invalid response:", res.text)
+        return None
 
+    print("DEBUG session_data:", data)
 
-# UPLOAD FRAMES
+    if res.status_code != 200:
+        print("Failed to create session:", data)
+        return None
+
+    return data
+
 
 def upload_frames(session_id, frames):
-    response = requests.post(
-        f"{BASE_URL}/frames",
-        json={
-            "session_id": session_id,
-            "frames": frames
-        }
-    )
-    return response.json()
+    payload = {
+        "session_id": session_id,
+        "frames": frames
+    }
 
+    res = requests.post(f"{BASE_URL}/frames", json=payload)
 
-# RUN ANALYSIS
+    if res.status_code != 200:
+        print("Frame upload failed:", res.text)
+        return False
+
+    return True
+
 
 def run_analysis(session_id):
-    response = requests.post(
-        f"{BASE_URL}/analysis",
-        json={"session_id": session_id}
-    )
-    return response.json()
+    payload = {"session_id": session_id}
 
+    res = requests.post(f"{BASE_URL}/analysis", json=payload)
 
+    try:
+        return res.json()
+    except:
+        return {"error": res.text}
 
-#  GENERATE WORKOUT
 
 def generate_workout(session_id):
+   
+    res = requests.post(f"{BASE_URL}/generate-workout?session_id={session_id}")
 
-    response = requests.post(
-        f"{BASE_URL}/generate-workout",
-        params={"session_id": session_id}   
-    )
-
-    return response.json()
+    try:
+        return res.json()
+    except:
+        return {"error": res.text}
 
 # MAIN PIPELINE
 
 def main():
 
-    print("\n== BioFitCoach System ==\n")
-
-    name = input("Enter your name: ").strip()
-    email = input("Enter your email: ").strip()
-
-    if not name or not email:
-        print(" Name and Email are required!")
-        return
+    print("\nBioFitCoach System \n")
 
    
-    # CREATE SESSION
-    
+    name = input("Enter your name: ")
+    email = input("Enter your email: ")
+
+
     session_data = create_session(name, email)
-    print("DEBUG session_data:", session_data)
+
+    if not session_data:
+        return
 
     session_id = session_data.get("session_id")
 
     if not session_id:
-      print(" Failed to create session:", session_data)
-      return
-    print(f"\n Session created successfully! ID: {session_id}")
+        print(" session_id missing in response")
+        return
 
-    
-    #  CAPTURE FRAMES
-    print("\n Starting pose capture...")
+    print(f"\nSession created successfully! ID: {session_id}")
+
+    #  CAPTURE (WITH REPJUDGE)
+    print("\nStarting pose capture...")
     print("Press 'q' to stop recording\n")
 
     frames = start_capture()
 
-    if not frames:
-        print(" No frames captured!")
+    if not frames or len(frames) == 0:
+        print(" No frames captured")
         return
 
-    print(f" Frames captured: {len(frames)}")
+    print(f"Frames captured: {len(frames)}")
 
     #  UPLOAD FRAMES
-    upload_frames(session_id, frames)
-    print(" Frames uploaded successfully")
+    success = upload_frames(session_id, frames)
 
-    
-    #  RUN ANALYSIS
+    if not success:
+        return
+
+    print("Frames uploaded successfully")
+
+    # ANALYSIS
+  
+    print("\nBIOMECHANICAL ANALYSIS")
+    print("")
+
     analysis = run_analysis(session_id)
-
-    print("\n BIOMECHANICAL ANALYSIS")
-    print("---------------------------------")
     print(analysis)
 
-   
-    #  GENERATE WORKOUT
-    workout = generate_workout(session_id)
+    #  WORKOUT 
 
     print("\nSMART WORKOUT PLAN")
-    print("---------------------------------")
+    print("")
+
+    workout = generate_workout(session_id)
     print(workout)
 
-    print("\n Pipeline Completed Successfully!")
+    print("\nPipeline Executed Successfully!")
 
-
+# RUN
 if __name__ == "__main__":
     main()
