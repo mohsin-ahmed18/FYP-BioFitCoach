@@ -1,6 +1,8 @@
 .env
 venv/
 myenv/
+fyp_env/
+data/
 __pycache__/
 *.pyc
 .pytest_cache/
