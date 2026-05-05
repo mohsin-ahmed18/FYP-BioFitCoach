@@ -1,15 +1,22 @@
 """
-services/feature_engineering.py
-=================================
+services/feature_engineering.py — Pose Feature Extraction
+===========================================================
 Converts raw MediaPipe pose landmarks into the 48-feature vector
 that the BiLSTM model was trained on.
 
-Must match the training notebook EXACTLY:
-    Group 1 — raw (x, y, z) for 13 joints  = 39 features
-    Group 2 — 9 computed joint angles       =  9 features
-    Total                                   = 48 features
+CRITICAL: This must match your notebook's extract_frame_features() exactly.
+    - 13 key joints × 3 coords (x, y, z) = 39 features  [Group 1]
+    - 9 joint angles                       =  9 features  [Group 2]
+    - Total = 48 features per frame
+    - SEQUENCE_LENGTH = 30 frames per BiLSTM input
 
-If you change anything here, retrain the model.
+Vocabulary:
+- Landmark      : One detected body joint with x, y, z, visibility.
+                  MediaPipe returns 33 landmarks per frame.
+- visibility    : Confidence [0–1] that the landmark is visible.
+                  We skip frames where any key joint < 0.5.
+- Normalized    : x,y coords are in [0,1] relative to frame size,
+                  so the model works regardless of camera resolution.
 """
 
 import numpy as np
@@ -17,8 +24,9 @@ import math
 from typing import Dict, List, Optional
 
 
-# ── 13 key joints used during training ──────────────────────────────────────
-# Order matters — must match the training notebook
+# ── Key landmark indices (subset of MediaPipe's 33) ──────────────────────
+# Ordered dict — insertion order is preserved (Python 3.7+)
+# This ORDER must match exactly what your notebook used when building features
 KEY_LANDMARKS: Dict[str, int] = {
     "left_shoulder":  11,
     "right_shoulder": 12,
@@ -35,54 +43,55 @@ KEY_LANDMARKS: Dict[str, int] = {
     "nose":            0,
 }
 
-NUM_FEATURES    = 48   # 13 × 3 + 9
-SEQUENCE_LENGTH = 30   # must match training (set in config.py too)
+NUM_FEATURES    = 13 * 3 + 9    # = 48
+SEQUENCE_LENGTH = 30            # must match notebook SEQUENCE_LENGTH
 
 
-# ── Geometry helpers ─────────────────────────────────────────────────────────
+# ── Geometry helpers ──────────────────────────────────────────────────────
 
-def _angle(a, b, c) -> float:
-    """Angle at joint B (degrees) between rays B→A and B→C."""
+def _angle(a: List[float], b: List[float], c: List[float]) -> float:
+    """
+    Angle in degrees at joint B between segments B→A and B→C.
+    Uses dot-product formula: cos(θ) = (BA · BC) / (|BA| |BC|)
+    """
     a, b, c = np.array(a), np.array(b), np.array(c)
     ba, bc  = a - b, c - b
     cos_val = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-8)
     return float(np.degrees(np.arccos(np.clip(cos_val, -1.0, 1.0))))
 
 
-# ── Main extraction ──────────────────────────────────────────────────────────
+# ── Main extraction functions ─────────────────────────────────────────────
 
-def extract_features(landmarks) -> Optional[np.ndarray]:
+def extract_frame_features(landmarks) -> Optional[np.ndarray]:
     """
-    Extract the 48-feature vector from one MediaPipe result.
+    Extract the 48-feature vector from one MediaPipe pose result.
 
-    Parameters
-    ----------
-    landmarks : results.pose_landmarks  (NormalizedLandmarkList)
+    Returns np.ndarray of shape (48,) or None if any key joint
+    has low visibility (occluded / out of frame).
 
-    Returns
-    -------
-    np.ndarray of shape (48,) or None if any key joint has visibility < 0.5
+    This function is called for EVERY video frame during inference.
     """
     lm = landmarks.landmark
 
-    # Reject frames where any key joint is occluded
+    # Skip frames where any key joint is hidden
     for name, idx in KEY_LANDMARKS.items():
         if lm[idx].visibility < 0.5:
             return None
 
-    # Helper: 2-D point for angle calculation
-    def pt(name):
+    def pt(name: str) -> List[float]:
+        """Get [x, y] for angle calculation."""
         idx = KEY_LANDMARKS[name]
         return [lm[idx].x, lm[idx].y]
 
-    # ── Group 1: raw x, y, z for 13 joints (39 values) ─────────────────────
-    coords: List[float] = []
-    for name in KEY_LANDMARKS:          # insertion order (Python 3.7+)
+    # ── Group 1: Raw x, y, z coordinates (39 values) ──────────────────
+    # Order follows KEY_LANDMARKS insertion order
+    coords = []
+    for name in KEY_LANDMARKS:
         idx = KEY_LANDMARKS[name]
         coords.extend([lm[idx].x, lm[idx].y, lm[idx].z])
 
-    # ── Group 2: 9 joint angles (9 values) ──────────────────────────────────
-    angles: List[float] = [
+    # ── Group 2: Computed joint angles (9 values) ──────────────────────
+    angles = [
         _angle(pt("left_shoulder"),  pt("left_elbow"),    pt("left_wrist")),      # left elbow
         _angle(pt("right_shoulder"), pt("right_elbow"),   pt("right_wrist")),     # right elbow
         _angle(pt("left_hip"),       pt("left_knee"),     pt("left_ankle")),      # left knee
@@ -94,21 +103,27 @@ def extract_features(landmarks) -> Optional[np.ndarray]:
         _angle(pt("left_knee"),      pt("left_hip"),      pt("right_hip")),       # hip width
     ]
 
-    return np.array(coords + angles, dtype=np.float32)
+    return np.array(coords + angles, dtype=np.float32)  # shape: (48,)
 
 
 def extract_rule_angles(landmarks) -> Dict[str, float]:
     """
-    Extended angle set used ONLY by form_rules.py — not fed to the model.
-    Returns an empty dict if landmarks are missing.
+    Extended angle set used ONLY by form_rules.py — NOT fed to the BiLSTM.
+    These angles make the form rules more readable and biomechanically precise.
+
+    Returns empty dict if any key landmark is missing.
     """
+    lm = landmarks.landmark
+
+    for name, idx in KEY_LANDMARKS.items():
+        if lm[idx].visibility < 0.3:
+            return {}
+
+    def pt(name: str) -> List[float]:
+        idx = KEY_LANDMARKS[name]
+        return [lm[idx].x, lm[idx].y]
+
     try:
-        lm = landmarks.landmark
-
-        def pt(name):
-            idx = KEY_LANDMARKS[name]
-            return [lm[idx].x, lm[idx].y]
-
         return {
             "left_elbow_angle":     _angle(pt("left_shoulder"),  pt("left_elbow"),   pt("left_wrist")),
             "right_elbow_angle":    _angle(pt("right_shoulder"), pt("right_elbow"),  pt("right_wrist")),
@@ -119,6 +134,7 @@ def extract_rule_angles(landmarks) -> Dict[str, float]:
             "left_shoulder_angle":  _angle(pt("left_hip"),       pt("left_shoulder"),pt("left_elbow")),
             "right_shoulder_angle": _angle(pt("right_hip"),      pt("right_shoulder"),pt("right_elbow")),
             "torso_angle":          _angle(pt("left_shoulder"),  pt("left_hip"),     pt("left_knee")),
+            "hip_width_angle":      _angle(pt("left_knee"),      pt("left_hip"),     pt("right_hip")),
         }
     except Exception:
         return {}
