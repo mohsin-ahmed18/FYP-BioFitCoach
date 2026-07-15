@@ -6,7 +6,7 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def generate_ai_workout(readiness_vector, exercises):
+def generate_ai_workout(readiness_vector, exercises, session_exercise: str | None = None):
 
     alignment = readiness_vector["alignment_score"]
     stability = readiness_vector["stability_score"]
@@ -38,11 +38,15 @@ def generate_ai_workout(readiness_vector, exercises):
     # STRONG PROMPT (KEY UPGRADE)
     # -----------------------------
 
+    ex_ctx = ""
+    if session_exercise and str(session_exercise).strip():
+        ex_ctx = f"\nApp-selected exercise during capture (coarse label): {session_exercise.strip()}\n- Interpret joint angles in that context when possible.\n- Do not contradict obvious upper-body-only framing with heavy squat-only advice unless the data supports it.\n"
+
     prompt = f"""
 You are an elite biomechanics expert and strength coach.
 
 Analyze the athlete's movement data and generate a detailed, human-like coaching report keeping the Tone as described strictly.
-
+{ex_ctx}
 ------------------------
 BIOMECHANICAL SCORES
 ------------------------
@@ -54,7 +58,7 @@ Overall Readiness: {readiness:.2f} ({readiness_level})
 Structural Bias: {bias}
 Primary Limitation: {limit}
 
-Recommended Exercises:
+Candidate exercise tags (short names from our rule engine — use for context; your "recommendations" array should still be full sentences):
 {exercises}
 
 ------------------------
